@@ -1,7 +1,7 @@
 #!/bin/bash
 # Installs goto on macOS:
 #   - copies goto.py to ~/.goto/            (your links live in ~/.goto/goto.db)
-#   - adds "127.0.0.1 goto" to /etc/hosts   (needs your password once)
+#   - adds "127.0.0.1 goto" and "::1 goto" to /etc/hosts (needs your password once)
 #   - adds the `goto` command to /usr/local/bin
 #   - starts the server now and at every login (LaunchAgent)
 #     (it listens on port 80 on all addresses, which macOS allows without root,
@@ -34,9 +34,14 @@ chmod 755 "$APP_DIR/goto.py"
 say "Adding 'goto' to /etc/hosts and the goto command to $BIN (you may be asked for your password)"
 if ! grep -qE '^[[:space:]]*127\.0\.0\.1[[:space:]]+([^#]*[[:space:]])?goto([[:space:]]|$)' /etc/hosts; then
   echo "127.0.0.1 goto" | sudo tee -a /etc/hosts >/dev/null
-  sudo dscacheutil -flushcache || true
-  sudo killall -HUP mDNSResponder 2>/dev/null || true
 fi
+# The IPv6 entry matters: without it, macOS looks up 'goto' on the network for IPv6
+# (e.g. as goto.<search-domain>) and browsers can stall trying that address first.
+if ! grep -qE '^[[:space:]]*::1[[:space:]]+([^#]*[[:space:]])?goto([[:space:]]|$)' /etc/hosts; then
+  echo "::1 goto" | sudo tee -a /etc/hosts >/dev/null
+fi
+sudo dscacheutil -flushcache || true
+sudo killall -HUP mDNSResponder 2>/dev/null || true
 sudo mkdir -p "$(dirname "$BIN")"
 # A tiny wrapper so the command keeps working with whichever python3 installed it.
 sudo tee "$BIN" >/dev/null <<EOF

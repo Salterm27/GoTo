@@ -11,7 +11,7 @@ rm -f "$PLIST"
 
 echo "Removing the goto command and the /etc/hosts entry (you may be asked for your password)"
 sudo rm -f /usr/local/bin/goto
-sudo sed -i '' -E '/^[[:space:]]*127\.0\.0\.1[[:space:]]+goto[[:space:]]*$/d' /etc/hosts
+sudo sed -i '' -E '/^[[:space:]]*(127\.0\.0\.1|::1)[[:space:]]+goto[[:space:]]*$/d' /etc/hosts
 sudo dscacheutil -flushcache || true
 sudo killall -HUP mDNSResponder 2>/dev/null || true
 

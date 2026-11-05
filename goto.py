@@ -32,7 +32,7 @@ from urllib.parse import parse_qs, quote, unquote, urlsplit, urlunsplit
 import urllib.error
 import urllib.request
 
-VERSION = "1.0.1"
+VERSION = "1.0.2"
 DEFAULT_DB = os.path.expanduser("~/.goto/goto.db")
 DEFAULT_SERVER = "http://goto"
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
@@ -671,6 +671,27 @@ class Handler(BaseHTTPRequestHandler):
         raise GotoError("Method not allowed.", 405)
 
 
+class DualStackServer(ThreadingHTTPServer):
+    """Listens on IPv6 and IPv4 at once (needed so 'goto' works over both)."""
+    address_family = socket.AF_INET6
+
+    def server_bind(self):
+        self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+        super().server_bind()
+
+
+def make_server(host, port):
+    # For "all addresses", prefer one dual-stack socket so both 127.0.0.1 and ::1
+    # reach us; fall back to plain IPv4 if the system has no IPv6.
+    if host in ("0.0.0.0", "::") and socket.has_ipv6:
+        try:
+            return DualStackServer(("::", port), Handler), "[::]"
+        except OSError:
+            if host == "::":
+                raise
+    return ThreadingHTTPServer((host, port), Handler), host
+
+
 def serve(args):
     store = Store(args.db)
     allowed = {"goto", "localhost", "127.0.0.1", "::1"}
@@ -682,7 +703,7 @@ def serve(args):
     Handler.allowed_hosts = allowed
     Handler.local_only = args.local_only
     try:
-        httpd = ThreadingHTTPServer((args.host, args.port), Handler)
+        httpd, shown = make_server(args.host, args.port)
     except OSError as e:
         hint = ""
         if sys.platform == "darwin" and args.port < 1024 and args.host not in ("0.0.0.0", "::"):
@@ -690,7 +711,7 @@ def serve(args):
                     "use --host 0.0.0.0 --local-only")
         sys.exit(f"goto: can't listen on {args.host}:{args.port}: {e.strerror or e}{hint}")
     scope = " (this computer only)" if args.local_only else ""
-    print(f"goto {VERSION} serving on http://{args.host}:{args.port}{scope}  (db: {args.db})", flush=True)
+    print(f"goto {VERSION} serving on http://{shown}:{args.port}{scope}  (db: {args.db})", flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

@@ -37,6 +37,8 @@ chmod 755 /usr/local/bin/goto
 # So 'goto' also works on the Pi itself.
 grep -qE '^[[:space:]]*127\.0\.0\.1[[:space:]]+([^#]*[[:space:]])?goto([[:space:]]|$)' /etc/hosts \
   || echo "127.0.0.1 goto" >> /etc/hosts
+grep -qE '^[[:space:]]*::1[[:space:]]+([^#]*[[:space:]])?goto([[:space:]]|$)' /etc/hosts \
+  || echo "::1 goto" >> /etc/hosts
 
 cat > /etc/systemd/system/goto.service <<EOF
 [Unit]
