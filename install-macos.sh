@@ -75,8 +75,27 @@ cat > "$PLIST" <<EOF
 </plist>
 EOF
 
-launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
-launchctl bootstrap "gui/$(id -u)" "$PLIST"
+# Stop any previous copy. bootout returns before the job is fully gone, and starting
+# the new one too early fails with "Bootstrap failed: 5: Input/output error".
+DOMAIN="gui/$(id -u)"
+launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
+for _ in $(seq 1 40); do
+  launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1 || break
+  sleep 0.25
+done
+started=0
+for _ in 1 2 3 4 5; do
+  if launchctl bootstrap "$DOMAIN" "$PLIST" 2>/dev/null; then started=1; break; fi
+  sleep 1
+done
+if [[ $started -eq 0 ]]; then
+  # Last resort: if it's somehow still loaded, restart it with the new files.
+  if launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1; then
+    launchctl kickstart -k "$DOMAIN/$LABEL"
+  else
+    launchctl bootstrap "$DOMAIN" "$PLIST"   # show the real error
+  fi
+fi
 
 URL="http://goto"; [[ "$PORT" != "80" ]] && URL="http://goto:$PORT"
 for _ in $(seq 1 20); do
