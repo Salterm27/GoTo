@@ -17,6 +17,7 @@ Rules:
 
 import argparse
 import datetime as _dt
+import ipaddress
 import json
 import os
 import re
@@ -31,7 +32,7 @@ from urllib.parse import parse_qs, quote, unquote, urlsplit, urlunsplit
 import urllib.error
 import urllib.request
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 DEFAULT_DB = os.path.expanduser("~/.goto/goto.db")
 DEFAULT_SERVER = "http://goto"
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
@@ -500,6 +501,7 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "goto/" + VERSION
     store = None
     allowed_hosts = set()
+    local_only = False
 
     # -- plumbing ----------------------------------------------------------- #
 
@@ -576,7 +578,19 @@ class Handler(BaseHTTPRequestHandler):
 
     # -- routing ------------------------------------------------------------ #
 
+    def client_is_local(self):
+        try:
+            ip = ipaddress.ip_address(self.client_address[0])
+        except ValueError:
+            return False
+        if getattr(ip, "ipv4_mapped", None):
+            ip = ip.ipv4_mapped
+        return ip.is_loopback
+
     def route(self, method):
+        if self.local_only and not self.client_is_local():
+            return self.send_body(403, "goto only answers requests from this computer.\n",
+                                  "text/plain; charset=utf-8")
         parts = urlsplit(self.path)
         path = parts.path
         try:
@@ -666,11 +680,17 @@ def serve(args):
         allowed |= {x.strip().lower() for x in h.split(",") if x.strip()}
     Handler.store = store
     Handler.allowed_hosts = allowed
+    Handler.local_only = args.local_only
     try:
         httpd = ThreadingHTTPServer((args.host, args.port), Handler)
     except OSError as e:
-        sys.exit(f"goto: can't listen on {args.host}:{args.port}: {e.strerror or e}")
-    print(f"goto {VERSION} serving on http://{args.host}:{args.port}  (db: {args.db})", flush=True)
+        hint = ""
+        if sys.platform == "darwin" and args.port < 1024 and args.host not in ("0.0.0.0", "::"):
+            hint = ("\n  macOS only lets normal users use ports below 1024 on all addresses: "
+                    "use --host 0.0.0.0 --local-only")
+        sys.exit(f"goto: can't listen on {args.host}:{args.port}: {e.strerror or e}{hint}")
+    scope = " (this computer only)" if args.local_only else ""
+    print(f"goto {VERSION} serving on http://{args.host}:{args.port}{scope}  (db: {args.db})", flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
@@ -905,6 +925,8 @@ def main(argv=None):
                    help="address to listen on (127.0.0.1 = this machine only, 0.0.0.0 = whole network)")
     s.add_argument("--port", type=int, default=int(os.environ.get("GOTO_PORT", "80")))
     s.add_argument("--db", default=os.environ.get("GOTO_DB", DEFAULT_DB))
+    s.add_argument("--local-only", action="store_true",
+                   help="only answer requests coming from this computer (use with --host 0.0.0.0)")
     s.add_argument("--allow-host", action="append", metavar="HOST",
                    help="extra hostname(s) allowed to use the editing API (comma separated; '*' = any)")
 

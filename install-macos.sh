@@ -4,6 +4,8 @@
 #   - adds "127.0.0.1 goto" to /etc/hosts   (needs your password once)
 #   - adds the `goto` command to /usr/local/bin
 #   - starts the server now and at every login (LaunchAgent)
+#     (it listens on port 80 on all addresses, which macOS allows without root,
+#      but only answers requests from this Mac)
 # Safe to run again to upgrade; your links are kept.
 set -euo pipefail
 
@@ -55,7 +57,8 @@ cat > "$PLIST" <<EOF
     <string>$PY</string>
     <string>$APP_DIR/goto.py</string>
     <string>serve</string>
-    <string>--host</string><string>127.0.0.1</string>
+    <string>--host</string><string>0.0.0.0</string>
+    <string>--local-only</string>
     <string>--port</string><string>$PORT</string>
     <string>--db</string><string>$APP_DIR/goto.db</string>
   </array>
