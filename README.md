@@ -1,35 +1,63 @@
 # goto/
 
-Short links for your browser. Type `goto/mail` and land in your inbox.
+Short links for your browser. Type `goto/mail` and land in your inbox, `goto/cal` for your calendar, `goto/jira/OPS-12` for a ticket.
 
-- Runs locally on your Mac, starts automatically at login.
-- Create, edit and delete links from a web page (`http://goto/`) or the terminal (`goto add ...`).
-- Every link can have **aliases** (`goto/mail`, `goto/m`, `goto/email` → same place).
-- **No duplicates:** every name and alias is unique across all links, and each destination URL can only exist once. A second name for the same place has to be an alias.
-- One Python file, no dependencies. The same file runs on a Raspberry Pi for the whole home network.
+- **Runs on your own computer.** No account, no cloud, no tracking. Works on **Windows, macOS and Linux**.
+- **Create, edit and delete links** from a web page at `http://goto/` or from the terminal.
+- **Aliases:** `goto/mail`, `goto/m` and `goto/email` can all go to the same place.
+- **No duplicates:** every name and alias is unique, and each destination can only be added once. A second name for the same place becomes an alias.
+- **Smart links:** pass extra text through, e.g. `goto/g/cats` to search Google for cats.
+- **One Python file, no dependencies.** Optionally run it on a Raspberry Pi so everyone on your home network gets the same links.
 
-## Install on your Mac
+## Install
+
+You need **Python 3.8 or newer**.
+
+- **Windows:** get it from [python.org](https://www.python.org/downloads/), or run `winget install Python.Python.3.12`.
+- **macOS:** usually already there. If not, run `xcode-select --install`.
+- **Linux:** run `sudo apt install python3`.
+
+Then download goto, either with `git clone https://github.com/Salterm27/goto.git` or from GitHub: **Code → Download ZIP**, then unzip it. The commands below assume you are in that folder: `goto` if you cloned it, `goto-main` if you downloaded the ZIP.
+
+### Windows 10 / 11
+
+Double-click **`install-windows.cmd`** in the goto folder. Windows asks once for permission to edit the hosts file; choose **Yes**.
+
+goto then runs in the background, starts at every sign-in, and adds a `goto` command for PowerShell and Windows Terminal.
+
+### macOS
 
 ```bash
-cd goto
-chmod +x install-macos.sh
+cd goto        # or goto-main
 ./install-macos.sh
 ```
 
-It asks for your password once (to add `127.0.0.1 goto` to `/etc/hosts` and install the `goto` command). Then open **http://goto/** and add your first link.
+It asks for your password once. goto then runs in the background, starts at every login, and adds a `goto` command to your terminal.
 
-> First time in a browser, type `http://goto/` (with `http://`). After that the browser knows `goto/` is a site and `goto/mail` just works.
-> Firefox: if it still searches, open `about:config` and add a boolean `browser.fixup.domainwhitelist.goto` = `true`.
+### Linux / Raspberry Pi (for your whole network)
+
+```bash
+cd goto        # or goto-main
+sudo ./install-linux.sh
+```
+
+This sets goto up as a system service that every device on your network can use. See [Share with your home network](#share-with-your-home-network).
+
+### Then
+
+Open **`http://goto/`** in your browser and add your first link. The first time, type it **with `http://`**; after that, the browser knows `goto/` is a site and `goto/mail` just works.
+
+> **Firefox:** if typing `goto/mail` searches the web instead, open `about:config` and add a boolean setting `browser.fixup.domainwhitelist.goto` set to `true`.
 
 ## Using it
 
-**Web page:** `http://goto/` lists everything, with a filter (press `/`), and Edit / Delete on each row. Visiting a link that doesn't exist (e.g. `goto/jira`) opens the page with the name filled in, ready to create it.
+**Web page:** `http://goto/` lists all your links with a filter (press `/`) and Edit / Delete on each row. Visiting a link that doesn't exist yet, such as `goto/jira`, opens the page with the name filled in so you can create it.
 
 **Terminal:**
 
 ```bash
 goto add mail https://mail.google.com -a m -a email -d "Personal Gmail"
-goto ls                      # list all       |  goto ls google   (filter)
+goto ls                              # list all (goto ls google filters)
 goto show mail
 goto edit mail --url https://outlook.office.com
 goto edit mail --rename inbox        # rename (an alias can be promoted this way)
@@ -38,12 +66,16 @@ goto alias add mail gm               # add alias(es)
 goto alias rm gm                     # remove an alias
 goto rm mail                         # delete the link and all its aliases
 goto mail                            # open it in your browser
-goto doctor                          # check setup
+goto export > backup.json            # back up / move your links
+goto import backup.json
+goto doctor                          # check that everything is set up
 ```
 
-`goto rm` on an alias refuses and tells you whether you meant to drop the alias or the whole link.
+Running `goto rm` on an alias doesn't delete anything. It tells you whether you meant to remove the alias or the whole link.
 
-**Smart links**
+> **Windows:** use the `goto` command in PowerShell or Windows Terminal. In the old Command Prompt (`cmd.exe`), `goto` is a built-in command and can't be replaced.
+
+### Smart links
 
 | You create | You type | You land on |
 |---|---|---|
@@ -51,52 +83,50 @@ goto doctor                          # check setup
 | `g` → `https://www.google.com/search?q=%s` | `goto/g/cats` | Google search for "cats" (`%s` is replaced) |
 | `jira` → `https://acme.atlassian.net/browse/%s` | `goto/jira/OPS-12` | that ticket |
 
-**Names:** letters, numbers, `-`, `_`, `.`; case doesn't matter (`goto/Mail` = `goto/mail`).
-**URLs:** `mail.google.com` is fine; `https://` is added for you (`http://` for local addresses like `localhost:3000`).
+**Names:** letters, numbers, `-`, `_` and `.`; case doesn't matter, so `goto/Mail` and `goto/mail` are the same link.
+**URLs:** `mail.google.com` is fine; `https://` is added for you, or `http://` for local addresses like `localhost:3000`.
 
-## Where things live (Mac)
+## Updating and uninstalling
 
-| What | Where |
-|---|---|
-| Your links | `~/.goto/goto.db` (SQLite; back up with `goto export > goto-backup.json`) |
-| Program | `~/.goto/goto.py` |
-| Log | `~/.goto/server.log` |
-| Service | `~/Library/LaunchAgents/com.goto.server.plist` |
+To update, get the latest files (`git pull`, or download the ZIP again) and run the installer again. Your links are kept.
 
-Upgrade: replace `goto.py` and run `./install-macos.sh` again. Uninstall: `./uninstall-macos.sh` (keeps your links; add `--purge` to delete them).
+| | Update | Uninstall (keeps your links) | Also delete your links |
+|---|---|---|---|
+| Windows | `install-windows.cmd` | `uninstall-windows.cmd` | `uninstall-windows.cmd -Purge` |
+| macOS | `./install-macos.sh` | `./uninstall-macos.sh` | `./uninstall-macos.sh --purge` |
+| Linux | `sudo ./install-linux.sh` | `sudo systemctl disable --now goto` | also `sudo rm -rf /var/lib/goto` |
 
-## Whole home network (Raspberry Pi)
+### Where things live
 
-1. **Move your links** from the Mac:
-   ```bash
-   goto export > links.json
-   scp goto.py install-linux.sh links.json pi@raspberrypi.local:~
-   ```
-2. **Install on the Pi:**
-   ```bash
-   ssh pi@raspberrypi.local
-   sudo ./install-linux.sh
-   goto import links.json
-   ```
-   It runs as a systemd service on port 80 for every device on your network (`sudo systemctl status goto`, logs with `journalctl -u goto`).
-3. **Make `goto` point at the Pi** for every device. Give the Pi a fixed IP (DHCP reservation on your router), then pick one:
-   - **Router local DNS** (most routers, also OpenWrt / pfSense / UniFi): add a host entry `goto` → Pi's IP.
-   - **Pi-hole** (if you run it): *Local DNS → DNS Records* → `goto` → Pi's IP.
-   - **Per device**: add `<pi-ip> goto` to that device's hosts file (only practical for computers, not phones).
-4. **Switch your Mac over:** run `./uninstall-macos.sh` (your Mac then uses the network's `goto`), and keep the `goto` command by adding to `~/.zshrc`:
-   `alias goto='python3 ~/.goto/goto.py'` (the CLI already talks to `http://goto`).
+| | Windows | macOS | Linux service |
+|---|---|---|---|
+| Your links | `%LOCALAPPDATA%\goto\goto.db` | `~/.goto/goto.db` | `/var/lib/goto/goto.db` |
+| Log | `%LOCALAPPDATA%\goto\server.log` | `~/.goto/server.log` | `journalctl -u goto` |
+| Autostart | `HKCU\...\CurrentVersion\Run` → `goto` | `~/Library/LaunchAgents/com.goto.server.plist` | `goto.service` (systemd) |
 
-If your router hands out names with a suffix and people type e.g. `goto.lan/`, install with
-`sudo GOTO_ALLOW_HOSTS="goto.lan" ./install-linux.sh` so editing works from that name too.
+## Share with your home network
 
-**Note:** on the network version anyone on your Wi-Fi can add or edit links (that's the point of a shared one). There's no login, so don't run it on a network you don't trust.
+On a laptop, goto only answers your own computer. To give everyone in the house the same links, run it on an always-on machine such as a Raspberry Pi:
+
+1. **Install it there:** copy the goto folder over and run `sudo ./install-linux.sh`.
+2. **Bring your links along** (optional): run `goto export > links.json` on your computer, copy the file over, then run `goto import links.json` on the Pi.
+3. **Give the Pi a fixed address.** Set a DHCP reservation in your router so its IP never changes.
+4. **Point the name `goto` at the Pi** for every device, using one of these:
+   - **Router local DNS** (most routers, also OpenWrt, pfSense, UniFi): add a host entry `goto` → the Pi's IP.
+   - **Pi-hole:** *Local DNS → DNS Records* → `goto` → the Pi's IP.
+   - **Per computer:** add `<pi-ip> goto` to that computer's hosts file (not possible on phones).
+5. **On computers that had goto installed locally,** uninstall it so they use the shared one. The `goto` command keeps working if you keep `goto.py`: use `python3 goto.py ...`, or set it up as an alias.
+
+If people will type a longer name such as `goto.lan/`, install with `sudo GOTO_ALLOW_HOSTS="goto.lan" ./install-linux.sh` so editing works from that name too.
+
+**Note:** on the shared version, anyone on your network can add or change links. There's no login, so only run it on a network you trust.
 
 ## How it works
 
-- `goto` resolves to the server through `/etc/hosts` (Mac) or your network's DNS (Pi).
-- The server answers `goto/<name>` with a temporary (302) redirect, never a permanent one, so browsers don't cache old destinations after you edit a link.
-- Data is a small SQLite database. Names live in their own table with a unique key, which is what guarantees no name or alias can ever be used twice; destination URLs have a unique key too.
-- The editing API (`/_/api/...`) only accepts JSON requests addressed to a known hostname, which stops other websites you visit from changing your links behind your back.
+- The name `goto` points at the goto server: through your computer's hosts file for a local install, or your network's DNS for a shared one.
+- The server answers `goto/<name>` with a temporary (302) redirect. Browsers don't cache a temporary redirect, so edits take effect immediately.
+- Links live in a small SQLite database. Names and aliases sit in their own table with a unique key, which is what guarantees no name is ever used twice; destination URLs have a unique key too.
+- A local install only answers requests from your own computer. The editing API (`/_/api/...`) only accepts JSON requests addressed to a known hostname, so websites you visit can't change your links behind your back.
 
 ### API
 
@@ -112,8 +142,18 @@ If your router hands out names with a suffix and people type e.g. `goto.lan/`, i
 
 ## Troubleshooting
 
-- **`goto doctor`** checks that `goto` resolves and the server answers.
-- **Browser searches Google instead of opening the link:** type `http://goto/mail` once (see top).
-- **"Port 80 in use"** (something else, like a local web server, already uses it): reinstall with `GOTO_PORT=8080 ./install-macos.sh`. Links then look like `goto:8080/mail`, which is less neat, so freeing port 80 is better.
-- **Browser warns the connection isn't secure:** it's plain `http` to your own machine; that's expected for a local service.
-- **Service status:** `launchctl print gui/$(id -u)/com.goto.server | head -20` and `tail ~/.goto/server.log`.
+Start with **`goto doctor`**. It checks that the name `goto` points at your computer and that the server is answering.
+
+- **The browser searches the web instead of opening the link:** type `http://goto/mail` once (see [Then](#then)).
+- **"Port 80 is already in use":** another program is using the web port. That's often a local web server, Docker, Skype (older versions) or IIS on Windows. Stop it, or install goto on another port: `install-windows.cmd -Port 8080` on Windows, `GOTO_PORT=8080 ./install-macos.sh` on macOS. Links then look like `goto:8080/mail`.
+- **Redirects feel slow:** reinstall to make sure both `127.0.0.1 goto` and `::1 goto` are in your hosts file. Without the second one, some networks look up `goto` online first.
+- **Windows Security warns about the hosts file:** the installer adds two lines, `127.0.0.1 goto` and `::1 goto`, which point `goto` at your own computer. You can check them in `C:\Windows\System32\drivers\etc\hosts`.
+- **"The connection isn't secure" warning:** goto uses plain `http` to your own computer, which is expected for a local service.
+- **Logs:**
+  - Windows: `Get-Content $env:LOCALAPPDATA\goto\server.log -Tail 20`
+  - macOS: `tail ~/.goto/server.log`
+  - Linux: `journalctl -u goto -n 50`
+
+## License
+
+[MIT](LICENSE)

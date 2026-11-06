@@ -32,7 +32,7 @@ from urllib.parse import parse_qs, quote, unquote, urlsplit, urlunsplit
 import urllib.error
 import urllib.request
 
-VERSION = "1.0.2"
+VERSION = "1.1.0"
 DEFAULT_DB = os.path.expanduser("~/.goto/goto.db")
 DEFAULT_SERVER = "http://goto"
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
@@ -671,7 +671,18 @@ class Handler(BaseHTTPRequestHandler):
         raise GotoError("Method not allowed.", 405)
 
 
-class DualStackServer(ThreadingHTTPServer):
+class GotoServer(ThreadingHTTPServer):
+    # On Windows, SO_REUSEADDR lets a second program bind the same port and silently
+    # share or steal its traffic. Ask for exclusive use there instead.
+    allow_reuse_address = sys.platform != "win32"
+
+    def server_bind(self):
+        if sys.platform == "win32" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
+class DualStackServer(GotoServer):
     """Listens on IPv6 and IPv4 at once (needed so 'goto' works over both)."""
     address_family = socket.AF_INET6
 
@@ -680,19 +691,57 @@ class DualStackServer(ThreadingHTTPServer):
         super().server_bind()
 
 
-def make_server(host, port):
-    # For "all addresses", prefer one dual-stack socket so both 127.0.0.1 and ::1
-    # reach us; fall back to plain IPv4 if the system has no IPv6.
-    if host in ("0.0.0.0", "::") and socket.has_ipv6:
-        try:
-            return DualStackServer(("::", port), Handler), "[::]"
-        except OSError:
-            if host == "::":
-                raise
-    return ThreadingHTTPServer((host, port), Handler), host
+class IPv6Server(GotoServer):
+    address_family = socket.AF_INET6
+
+
+def make_servers(host, port):
+    """Return [(server, label)] for the requested listen address.
+
+    0.0.0.0 / ::  -> every address; one dual-stack socket when IPv6 exists.
+    localhost     -> this computer only, on both 127.0.0.1 and ::1 (two sockets).
+                     On Windows this works on port 80 without admin rights; on
+                     macOS port 80 needs 0.0.0.0 + --local-only instead.
+    anything else -> exactly that address.
+    """
+    if host in ("0.0.0.0", "::"):
+        if socket.has_ipv6:
+            try:
+                return [(DualStackServer(("::", port), Handler), "[::]")]
+            except (OSError, AttributeError):
+                if host == "::":
+                    raise
+        return [(GotoServer(("0.0.0.0", port), Handler), "0.0.0.0")]
+    if host == "localhost":
+        servers = [(GotoServer(("127.0.0.1", port), Handler), "127.0.0.1")]
+        if socket.has_ipv6:
+            try:
+                servers.append((IPv6Server(("::1", port), Handler), "[::1]"))
+            except OSError:
+                pass  # no IPv6 loopback; IPv4 alone is fine
+        return servers
+    if ":" in host:
+        return [(IPv6Server((host, port), Handler), f"[{host}]")]
+    return [(GotoServer((host, port), Handler), host)]
+
+
+def redirect_output(log_path):
+    """Send output to a log file. Needed under pythonw.exe (Windows, no console),
+    where sys.stdout/sys.stderr are None and any write would crash a request."""
+    if log_path:
+        folder = os.path.dirname(os.path.abspath(log_path))
+        os.makedirs(folder, exist_ok=True)
+        stream = open(log_path, "a", buffering=1, encoding="utf-8", errors="replace")
+        sys.stdout = sys.stderr = stream
+    else:
+        if sys.stdout is None:
+            sys.stdout = open(os.devnull, "w")
+        if sys.stderr is None:
+            sys.stderr = open(os.devnull, "w")
 
 
 def serve(args):
+    redirect_output(args.log)
     store = Store(args.db)
     allowed = {"goto", "localhost", "127.0.0.1", "::1"}
     hostname = socket.gethostname().lower()
@@ -703,17 +752,25 @@ def serve(args):
     Handler.allowed_hosts = allowed
     Handler.local_only = args.local_only
     try:
-        httpd, shown = make_server(args.host, args.port)
+        servers = make_servers(args.host, args.port)
     except OSError as e:
         hint = ""
         if sys.platform == "darwin" and args.port < 1024 and args.host not in ("0.0.0.0", "::"):
             hint = ("\n  macOS only lets normal users use ports below 1024 on all addresses: "
                     "use --host 0.0.0.0 --local-only")
-        sys.exit(f"goto: can't listen on {args.host}:{args.port}: {e.strerror or e}{hint}")
-    scope = " (this computer only)" if args.local_only else ""
-    print(f"goto {VERSION} serving on http://{shown}:{args.port}{scope}  (db: {args.db})", flush=True)
+        elif sys.platform == "win32":
+            hint = ("\n  Another program is probably using this port (often IIS or another web "
+                    "server). See which with: netstat -ano | findstr :%d" % args.port)
+        msg = f"goto: can't listen on {args.host}:{args.port}: {e.strerror or e}{hint}"
+        print(msg, file=sys.stderr, flush=True)
+        sys.exit(1)
+    scope = " (this computer only)" if args.local_only or args.host == "localhost" else ""
+    where = ", ".join(f"http://{label}:{args.port}" for _, label in servers)
+    print(f"goto {VERSION} serving on {where}{scope}  (db: {args.db})", flush=True)
+    for httpd, _ in servers[1:]:
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
     try:
-        httpd.serve_forever()
+        servers[0][0].serve_forever()
     except KeyboardInterrupt:
         pass
 
@@ -870,6 +927,9 @@ def cmd_doctor(c, a):
         if sys.platform == "darwin":
             print("       Check: launchctl print gui/$(id -u)/com.goto.server | head -20")
             print("       Logs:  tail ~/.goto/server.log")
+        elif sys.platform == "win32":
+            print("       Logs:  Get-Content $env:LOCALAPPDATA\\goto\\server.log -Tail 20")
+            print("       Start: run install-windows.cmd again (safe to repeat)")
     sys.exit(0 if ok else 1)
 
 
@@ -943,9 +1003,11 @@ def main(argv=None):
 
     s = sub.add_parser("serve", help="run the goto server")
     s.add_argument("--host", default=os.environ.get("GOTO_HOST", "127.0.0.1"),
-                   help="address to listen on (127.0.0.1 = this machine only, 0.0.0.0 = whole network)")
+                   help="address to listen on: localhost = this computer only (IPv4+IPv6), "
+                        "0.0.0.0 = every address (whole network)")
     s.add_argument("--port", type=int, default=int(os.environ.get("GOTO_PORT", "80")))
     s.add_argument("--db", default=os.environ.get("GOTO_DB", DEFAULT_DB))
+    s.add_argument("--log", metavar="FILE", help="write the server log to FILE instead of the console")
     s.add_argument("--local-only", action="store_true",
                    help="only answer requests coming from this computer (use with --host 0.0.0.0)")
     s.add_argument("--allow-host", action="append", metavar="HOST",
